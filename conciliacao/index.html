@@ -1,0 +1,965 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Conciliador de Extrato</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=JetBrains+Mono:wght@400;500&family=Public+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: faixa de entrada com três painéis (planilha, extrato, ajustes), depois o resumo e a tabela de conferência em largura total */
+:root {
+  --bg: #f2f5f6;
+  --surface: #ffffff;
+  --ink: #13232a;
+  --muted: #586a72;
+  --line: #d7dfe2;
+  --accent: #0d6177;
+  --accent-ink: #ffffff;
+  --accent-soft: #e0eef1;
+  --ok: #1b7546; --ok-soft: #e2f2e9;
+  --warn: #9c5a05; --warn-soft: #faefd9;
+  --crit: #b0261e; --crit-soft: #fae4e2;
+  --info: #5646ad; --info-soft: #ebe8f8;
+  --quiet: #66767e; --quiet-soft: #eaeef0;
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --f-num: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1619; --surface: #152126; --ink: #e1eaed; --muted: #91a3aa; --line: #283a41;
+    --accent: #62bacd; --accent-ink: #08262e; --accent-soft: #183238;
+    --ok: #5ec48d; --ok-soft: #153124; --warn: #e3a64c; --warn-soft: #33281443;
+    --crit: #f0827a; --crit-soft: #3a1c1a; --info: #aa9ef0; --info-soft: #252043;
+    --quiet: #91a3aa; --quiet-soft: #1e2b30;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1619; --surface: #152126; --ink: #e1eaed; --muted: #91a3aa; --line: #283a41;
+  --accent: #62bacd; --accent-ink: #08262e; --accent-soft: #183238;
+  --ok: #5ec48d; --ok-soft: #153124; --warn: #e3a64c; --warn-soft: #33281443;
+  --crit: #f0827a; --crit-soft: #3a1c1a; --info: #aa9ef0; --info-soft: #252043;
+  --quiet: #91a3aa; --quiet-soft: #1e2b30;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); }
+body {
+  margin: 0; color: var(--ink); font: 15px/1.5 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 48px;
+}
+table, input, select, textarea, button { font: inherit; color: inherit; }
+.wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 20px; }
+header.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; padding-top: 28px; }
+h1 { font: 700 clamp(26px, 4vw, 34px)/1.1 var(--f-display); margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+.privacy { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.privacy::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+
+.inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; align-items: start; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.panel h2 { font: 600 17px/1.2 var(--f-display); margin: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tag { font: 500 11px/1 var(--f-body); text-transform: uppercase; letter-spacing: .06em; padding: 4px 7px; border-radius: 4px; background: var(--quiet-soft); color: var(--quiet); white-space: nowrap; }
+.tag.sample { background: var(--warn-soft); color: var(--warn); }
+.tag.real { background: var(--ok-soft); color: var(--ok); }
+.drop { display: grid; gap: 4px; place-items: center; text-align: center; padding: 18px 12px; border: 1.5px dashed var(--line); border-radius: 8px; cursor: pointer; color: var(--muted); transition: border-color .15s, background .15s; }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+.drop strong { color: var(--ink); font-weight: 600; }
+.drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fileinfo { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.fileinfo b { color: var(--ink); font-weight: 600; }
+details.map summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--accent); }
+details.map summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-top: 10px; }
+.field { display: grid; gap: 3px; min-width: 0; }
+.field label { font-size: 12px; color: var(--muted); letter-spacing: .02em; }
+.field select, .field input, textarea { width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+textarea { font: 13px/1.5 var(--f-num); resize: vertical; min-height: 120px; }
+select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hint { font-size: 12px; color: var(--muted); margin: 0; }
+
+.notice { border-radius: 8px; padding: 10px 14px; font-size: 14px; background: var(--warn-soft); color: var(--ink); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
+.notice.info { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.notice.err { background: var(--crit-soft); border-color: color-mix(in srgb, var(--crit) 35%, transparent); }
+
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.metric { background: var(--surface); padding: 14px 16px; display: grid; gap: 2px; align-content: start; }
+.metric .k { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.metric .v { font: 500 24px/1.2 var(--f-num); font-variant-numeric: tabular-nums; }
+.metric .s { font-size: 13px; color: var(--muted); }
+.v.ok { color: var(--ok); } .v.crit { color: var(--crit); } .v.warn { color: var(--warn); }
+.bar { height: 6px; border-radius: 3px; background: var(--quiet-soft); overflow: hidden; margin-top: 6px; }
+.bar i { display: block; height: 100%; background: var(--ok); }
+.sources { display: grid; gap: 2px; font-size: 13px; color: var(--muted); }
+.sources b { color: var(--ink); font-weight: 600; }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 11px; font-size: 13px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.chip .n { font: 500 12px var(--f-num); color: var(--muted); }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.chip[aria-pressed="true"] .n { color: var(--bg); opacity: .75; }
+.chip:disabled { opacity: .45; cursor: default; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.search { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); width: 220px; max-width: 100%; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-weight: 500; font-size: 14px; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.link { border: 0; background: none; color: var(--accent); padding: 0; font-size: 13px; text-decoration: underline; text-underline-offset: 2px; }
+
+.tablebox { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; min-width: 980px; font-size: 14px; }
+th { text-align: left; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--surface); position: sticky; top: 0; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td.st { border-left: 4px solid var(--quiet); width: 150px; }
+tr.t-ok td.st { border-left-color: var(--ok); }
+tr.t-warn td.st { border-left-color: var(--warn); }
+tr.t-crit td.st { border-left-color: var(--crit); }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 4px; white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.crit { background: var(--crit-soft); color: var(--crit); }
+.pill.quiet { background: var(--quiet-soft); color: var(--quiet); }
+.flag { display: inline-block; margin-top: 4px; font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: var(--info-soft); color: var(--info); white-space: nowrap; }
+.item + .item { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.item .d { font: 12px var(--f-num); color: var(--muted); font-variant-numeric: tabular-nums; }
+.item .t { overflow-wrap: anywhere; }
+.item .c { font-size: 12px; color: var(--muted); }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.neg { color: var(--crit); }
+.dash { color: var(--muted); }
+td.obs { color: var(--muted); font-size: 13px; max-width: 280px; }
+td.obs div + div { margin-top: 3px; }
+.empty { padding: 28px; text-align: center; color: var(--muted); }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 6px; font-size: 14px; z-index: 20; }
+footer { font-size: 13px; color: var(--muted); }
+footer p { margin: 0 0 6px; max-width: 80ch; }
+@media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } .search { width: 100%; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Conciliador de Extrato</h1>
+      <p class="lede">Compare os lançamentos da sua planilha com o extrato OFX do banco. Valores divergentes, lançamentos ausentes, duplicidades e categorias suspeitas aparecem marcados.</p>
+    </div>
+    <div class="privacy">Os arquivos são lidos no seu navegador. Nada é enviado.</div>
+  </header>
+
+  <section class="inputs">
+    <div class="panel">
+      <h2>Planilha <span id="tagP" class="tag sample">Exemplo</span></h2>
+      <label class="drop" id="dropP">
+        <input type="file" id="fileP" accept=".xlsx,.xls,.xlsm,.ods,.csv">
+        <strong>Escolher planilha</strong>
+        <span>ou arraste aqui · .xlsx, .xls, .ods, .csv</span>
+      </label>
+      <div class="fileinfo" id="infoP"></div>
+      <details class="map" id="mapBox">
+        <summary>Colunas da planilha</summary>
+        <div class="grid2" id="mapFields"></div>
+        <p class="hint" style="margin-top:8px">Use <b>Valor</b> (com sinal) ou as colunas <b>Entrada</b> e <b>Saída</b>. A coluna <b>Tipo</b> (D/C, Entrada/Saída) define o sinal quando o valor vem sem ele.</p>
+      </details>
+    </div>
+
+    <div class="panel">
+      <h2>Extrato OFX <span id="tagE" class="tag sample">Exemplo</span></h2>
+      <label class="drop" id="dropE">
+        <input type="file" id="fileE" accept=".ofx,.qfx,.txt">
+        <strong>Escolher extrato</strong>
+        <span>ou arraste aqui · .ofx exportado do internet banking</span>
+      </label>
+      <div class="fileinfo" id="infoE"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Ajustes</h2>
+      <div class="grid2" style="margin-top:0">
+        <div class="field">
+          <label for="tol">Tolerância de data (dias)</label>
+          <input type="number" id="tol" min="0" max="15" value="3">
+        </div>
+        <div class="field">
+          <label for="signMode">Sinal dos valores</label>
+          <select id="signMode">
+            <option value="auto">Detectar</option>
+            <option value="signed">Comparar com sinal</option>
+            <option value="abs">Ignorar sinal</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="rules">Regras de categoria · <span style="font-family:var(--f-num)">TEXTO = Categoria</span></label>
+        <textarea id="rules" spellcheck="false"></textarea>
+      </div>
+      <p class="hint">Se a descrição do extrato ou da planilha contém o texto, a categoria precisa ser a indicada. Além das regras, o conciliador aprende com os próprios lançamentos e avisa quando um favorecido aparece numa categoria fora do habitual.</p>
+    </div>
+  </section>
+
+  <div id="notices" style="display:grid;gap:8px"></div>
+
+  <section class="summary" id="summary"></section>
+  <div class="sources" id="sources"></div>
+
+  <div class="toolbar">
+    <div class="chips" id="chips" role="group" aria-label="Filtrar resultados"></div>
+    <div class="actions">
+      <input type="search" class="search" id="q" placeholder="Buscar descrição, categoria, valor" aria-label="Buscar">
+      <button class="btn" id="btnCopy" type="button">Copiar lista</button>
+      <button class="btn primary" id="btnXlsx" type="button">Baixar Excel</button>
+    </div>
+  </div>
+
+  <div class="tablebox">
+    <table>
+      <thead>
+        <tr>
+          <th>Situação</th>
+          <th>Planilha</th>
+          <th class="num">Valor planilha</th>
+          <th>Extrato</th>
+          <th class="num">Valor extrato</th>
+          <th class="num">Diferença</th>
+          <th>Observações</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <footer>
+    <p><b>Como a conferência funciona.</b> Primeiro casam lançamentos de valor idêntico na mesma data ou dentro da tolerância. Depois procura somas: um crédito do extrato que corresponde a várias linhas da planilha (ou o contrário). Por fim, liga lançamentos com descrição parecida e valor diferente, que viram <i>valor divergente</i>. O que sobra fica como <i>só na planilha</i> ou <i>só no extrato</i>.</p>
+    <p>Linhas da planilha com data fora do período do extrato não entram na conferência e aparecem como <i>fora do período</i>.</p>
+  </footer>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const money = (c) => (c == null ? '' : BRL.format(c / 100));
+
+/* ---------- Datas (número de dias desde 1970, em UTC) ---------- */
+const dayNum = (y, m, d) => Math.round(Date.UTC(y, m - 1, d) / 864e5);
+function fmtDate(n) {
+  if (n == null) return '';
+  const d = new Date(n * 864e5);
+  return String(d.getUTCDate()).padStart(2, '0') + '/' + String(d.getUTCMonth() + 1).padStart(2, '0') + '/' + d.getUTCFullYear();
+}
+function parseDate(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date && !isNaN(v)) return dayNum(v.getFullYear(), v.getMonth() + 1, v.getDate());
+  if (typeof v === 'number') return v > 1000 && v < 100000 ? Math.floor(v) - 25569 : null; // serial do Excel
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return dayNum(+m[1], +m[2], +m[3]);
+  m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/);
+  if (m) { let y = +m[3]; if (y < 100) y += 2000; if (+m[2] < 1 || +m[2] > 12) return null; return dayNum(y, +m[2], +m[1]); }
+  if (/^\d{5}(\.\d+)?$/.test(s)) return Math.floor(+s) - 25569;
+  return null;
+}
+
+/* ---------- Valores em centavos ---------- */
+function parseMoney(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return isFinite(v) ? Math.round(v * 100) : null;
+  let s = String(v).trim();
+  if (!s) return null;
+  const neg = /^\(.*\)$/.test(s) || /-/.test(s) || /\sD$/i.test(s);
+  s = s.replace(/[^\d,.]/g, '');
+  if (!/\d/.test(s)) return null;
+  const lc = s.lastIndexOf(','), ld = s.lastIndexOf('.');
+  if (lc > ld) s = s.replace(/\./g, '').replace(',', '.');
+  else if (ld > lc) {
+    const dots = (s.match(/\./g) || []).length;
+    if (lc === -1 && (dots > 1 || s.length - ld - 1 === 3)) s = s.replace(/\./g, '');
+    else s = s.replace(/,/g, '');
+  }
+  const n = parseFloat(s);
+  if (isNaN(n)) return null;
+  return Math.round(n * 100) * (neg ? -1 : 1);
+}
+
+/* ---------- Texto ---------- */
+const STOP = new Set(('PIX ENVIADO ENVIADA RECEBIDO RECEBIDA ENV REC TED DOC TEF TRANSF TRANSFERENCIA PAG PAGTO PAGAMENTO PGTO BOLETO TIT TITULO ' +
+  'COMPRA CARTAO DEB DEBITO CRED CREDITO AUTOM AUTOMATICO DE DA DO DOS DAS E EM PARA COM NO NA LTDA ME EPP EIRELI SA CIA QR CODE ' +
+  'INTERNET BANKING NF NFE NOTA REF REFERENTE').split(' '));
+function norm(s) {
+  return String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+}
+function tokens(s) { return norm(s).split(' ').filter((t) => t.length > 1 && !/\d/.test(t) && !STOP.has(t)); }
+function sim(a, b) {
+  const A = [...new Set(tokens(a))], B = new Set(tokens(b));
+  if (!A.length || !B.size) return 0;
+  let hit = 0;
+  for (const t of A) {
+    if (B.has(t)) { hit++; continue; }
+    for (const u of B) if (t.length >= 4 && u.length >= 4 && (t.startsWith(u) || u.startsWith(t))) { hit += 0.8; break; }
+  }
+  return (2 * hit) / (A.length + B.size);
+}
+const payeeKey = (s) => tokens(s).slice(0, 2).join(' ');
+const digits = (s) => String(s ?? '').replace(/\D/g, '').replace(/^0+/, '');
+
+/* ---------- OFX ---------- */
+function decodeText(buf) {
+  const head = new TextDecoder('latin1').decode(buf.slice(0, 800));
+  let enc = /CHARSET:\s*(1252|ISO-8859-1|8859)|encoding="(windows-1252|iso-8859-1)"/i.test(head) ? 'windows-1252' : 'utf-8';
+  let txt = new TextDecoder(enc).decode(buf);
+  if (enc === 'utf-8' && txt.includes('\uFFFD')) txt = new TextDecoder('windows-1252').decode(buf);
+  return txt;
+}
+function tag(block, name) {
+  const m = block.match(new RegExp('<' + name + '>\\s*([^<\\r\\n]*)', 'i'));
+  return m ? m[1].trim() : '';
+}
+function ofxDate(s) { const m = String(s).match(/^(\d{4})(\d{2})(\d{2})/); return m ? dayNum(+m[1], +m[2], +m[3]) : null; }
+function ofxAmount(s) {
+  s = String(s).trim().replace(/\s/g, '');
+  if (!s) return null;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(s);
+  return isNaN(n) ? null : Math.round(n * 100);
+}
+function parseOfx(text) {
+  if (!/<OFX>/i.test(text) || !/<STMTTRN>/i.test(text)) throw new Error('O arquivo não parece um extrato OFX com lançamentos (não encontrei as marcações <OFX> e <STMTTRN>).');
+  const blocks = text.split(/<STMTTRN>/i).slice(1).map((b) => b.split(/<\/STMTTRN>|<\/BANKTRANLIST>/i)[0]);
+  const tx = blocks.map((b, i) => {
+    const name = tag(b, 'NAME'), memo = tag(b, 'MEMO');
+    const desc = [memo, name].filter(Boolean).filter((v, j, a) => a.indexOf(v) === j && !(j > 0 && norm(a[0]).includes(norm(v)))).join(' · ');
+    return { id: 'e' + i, fitid: tag(b, 'FITID'), type: tag(b, 'TRNTYPE'), date: ofxDate(tag(b, 'DTPOSTED')), amount: ofxAmount(tag(b, 'TRNAMT')), desc: desc || tag(b, 'TRNTYPE'), doc: tag(b, 'CHECKNUM') || tag(b, 'REFNUM') };
+  }).filter((t) => t.date != null && t.amount != null);
+  const tl = (text.match(/<BANKTRANLIST>[\s\S]*?<STMTTRN>/i) || [''])[0];
+  const lb = (text.match(/<LEDGERBAL>[\s\S]*?(?:<\/LEDGERBAL>|<AVAILBAL>|<\/STMTRS>)/i) || [''])[0];
+  const dates = tx.map((t) => t.date);
+  let start = ofxDate(tag(tl, 'DTSTART')), end = ofxDate(tag(tl, 'DTEND'));
+  if (dates.length) {
+    const lo = Math.min(...dates), hi = Math.max(...dates);
+    if (start == null || start > lo) start = lo;
+    if (end == null || end < hi) end = hi;
+  }
+  return {
+    tx, start, end,
+    bank: tag(text, 'ORG') || tag(text, 'BANKID'),
+    branch: tag(text, 'BRANCHID'),
+    acct: tag(text, 'ACCTID'),
+    ledger: lb ? ofxAmount(tag(lb, 'BALAMT')) : null,
+    ledgerDate: lb ? ofxDate(tag(lb, 'DTASOF')) : null,
+  };
+}
+
+/* ---------- Planilha ---------- */
+const FIELDS = [
+  { k: 'data', label: 'Data', req: true, re: [/pagamento|pgto|pago em|liquida|baixa|movimento|lancamento/, /^data$|^dt$|^date$/, /data|^dt /] },
+  { k: 'descricao', label: 'Descrição', re: [/descri|historico/, /favorecido|fornecedor|cliente|beneficiario|nome|detalhe|memo/] },
+  { k: 'valor', label: 'Valor (com sinal)', re: [/^valor$|^vlr$|^valor r|^valor \(r|^amount$/, /valor pago|valor liquido|valor total|^valor|^vlr|montante|quantia/] },
+  { k: 'entrada', label: 'Entrada', re: [/^entradas?$|^creditos?$|^receitas?$|^recebimentos?$/] },
+  { k: 'saida', label: 'Saída', re: [/^saidas?$|^debitos?$|^despesas?$|^pagamentos?$/] },
+  { k: 'tipo', label: 'Tipo (D/C)', re: [/^tipo|^d ?c$|^e ?s$|^operacao|^movimento$/] },
+  { k: 'categoria', label: 'Categoria', re: [/categoria|classifica|plano de conta|conta contabil|rubrica|natureza|centro de custo|grupo/] },
+  { k: 'documento', label: 'Documento', re: [/documento|^doc|^nf|nota fiscal|^n[o ]|^numero|^num/] },
+];
+const colName = (i) => { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+
+function detectHeader(aoa) {
+  let best = 0, bestScore = -1;
+  for (let r = 0; r < Math.min(aoa.length, 20); r++) {
+    const row = aoa[r] || [];
+    let score = 0;
+    for (const c of row) {
+      if (typeof c !== 'string' || !c.trim()) continue;
+      const n = norm(c).toLowerCase();
+      if (FIELDS.some((f) => f.re.some((re) => re.test(n)))) score++;
+    }
+    if (score > bestScore) { best = r; bestScore = score; }
+  }
+  return bestScore >= 2 ? best : 0;
+}
+function guessMap(headers) {
+  const map = {}; const used = new Set();
+  const hn = headers.map((h) => norm(h).toLowerCase());
+  for (const f of FIELDS) {
+    map[f.k] = -1;
+    for (const re of f.re) {
+      const i = hn.findIndex((h, j) => h && !used.has(j) && re.test(h));
+      if (i >= 0) { map[f.k] = i; used.add(i); break; }
+    }
+  }
+  if (map.valor >= 0) { map.entrada = -1; map.saida = -1; }
+  return map;
+}
+function buildSheetRecords(aoa, hIdx, map) {
+  const out = []; let skipped = 0;
+  const get = (r, k) => (map[k] >= 0 ? r[map[k]] : '');
+  for (let i = hIdx + 1; i < aoa.length; i++) {
+    const r = aoa[i] || [];
+    if (!r.some((c) => c !== '' && c != null)) continue;
+    const date = parseDate(get(r, 'data'));
+    let amt = null;
+    if (map.valor >= 0) amt = parseMoney(get(r, 'valor'));
+    else if (map.entrada >= 0 || map.saida >= 0) {
+      const e = parseMoney(get(r, 'entrada')), s = parseMoney(get(r, 'saida'));
+      if (e != null || s != null) amt = Math.abs(e || 0) - Math.abs(s || 0);
+    }
+    if (amt != null && map.tipo >= 0) {
+      const t = norm(get(r, 'tipo'));
+      if (/^(D|S)$|DEB|SAID|DESP|PAG/.test(t)) amt = -Math.abs(amt);
+      else if (/^(C|E|R)$|CRED|ENTR|RECE/.test(t)) amt = Math.abs(amt);
+    }
+    if (date == null || amt == null || amt === 0) { skipped++; continue; }
+    out.push({ id: 'p' + i, line: i + 1, date, amount: amt, desc: String(get(r, 'descricao') ?? '').trim(), cat: String(get(r, 'categoria') ?? '').trim(), doc: String(get(r, 'documento') ?? '').trim() });
+  }
+  return { rows: out, skipped };
+}
+
+/* ---------- Conciliação ---------- */
+function findSubset(target, items, maxK) {
+  const n = Math.min(items.length, 16), T = Math.abs(target);
+  const pick = [];
+  function dfs(i, sum) {
+    if (pick.length >= 2 && sum === target) return pick.slice();
+    if (pick.length === maxK) return null;
+    for (let j = i; j < n; j++) {
+      const v = items[j].k;
+      if (Math.abs(sum + v) > T) continue;
+      pick.push(items[j]);
+      const r = dfs(j + 1, sum + v);
+      if (r) return r;
+      pick.pop();
+    }
+    return null;
+  }
+  return dfs(0, 0);
+}
+
+function reconcile(P, ofx, o) {
+  const E = ofx.tx, tol = o.tol;
+  const K = (a) => (o.abs ? Math.abs(a) : a);
+  const sameSign = (a, b) => o.abs || Math.sign(a) === Math.sign(b);
+  const res = [];
+  const inP = [], outP = [];
+  for (const p of P) (p.date < ofx.start - tol || p.date > ofx.end + tol ? outP : inP).push(p);
+  const uP = new Set(inP), uE = new Set(E);
+  const simPE = (p, e) => (digits(p.doc) && digits(p.doc) === digits(e.doc) ? 1 : sim(p.desc, e.desc));
+
+  // 1. Valor idêntico, data igual ou dentro da tolerância
+  let cand = [];
+  for (const p of inP) for (const e of E) {
+    if (K(p.amount) !== K(e.amount)) continue;
+    const dd = Math.abs(p.date - e.date);
+    if (dd <= tol) cand.push({ p, e, dd, s: simPE(p, e) });
+  }
+  cand.sort((a, b) => a.dd - b.dd || b.s - a.s);
+  for (const c of cand) {
+    if (!uP.has(c.p) || !uE.has(c.e)) continue;
+    uP.delete(c.p); uE.delete(c.e);
+    res.push({ status: c.dd ? 'ok-date' : 'ok', p: [c.p], e: [c.e], dd: c.dd });
+  }
+
+  // 2. Somas: um lançamento de um lado = vários do outro
+  const groupPass = (singles, pool, singleIsE) => {
+    const list = [...singles].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+    for (const s of list) {
+      if (!singles.has(s)) continue;
+      const items = [...pool].filter((x) => sameSign(K(x.amount), K(s.amount)) && Math.abs(x.date - s.date) <= tol)
+        .sort((a, b) => Math.abs(a.date - s.date) - Math.abs(b.date - s.date))
+        .map((x) => ({ x, k: K(x.amount) }));
+      if (items.length < 2) continue;
+      const r = findSubset(K(s.amount), items, 4);
+      if (!r) continue;
+      singles.delete(s); r.forEach((it) => pool.delete(it.x));
+      const many = r.map((it) => it.x).sort((a, b) => a.date - b.date);
+      res.push(singleIsE ? { status: 'group', p: many, e: [s] } : { status: 'group', p: [s], e: many });
+    }
+  };
+  groupPass(uE, uP, true);
+  groupPass(uP, uE, false);
+
+  // 3. Descrição parecida, valor diferente
+  cand = [];
+  for (const p of uP) for (const e of uE) {
+    const dd = Math.abs(p.date - e.date);
+    if (dd > tol || !sameSign(K(p.amount), K(e.amount))) continue;
+    const s = simPE(p, e);
+    const a = Math.abs(p.amount), b = Math.abs(e.amount);
+    const rel = Math.abs(a - b) / Math.max(a, b);
+    if (s === 1 || (s >= 0.5 && rel <= 0.5) || (s >= 0.3 && rel <= 0.1)) cand.push({ p, e, dd, score: s * 2 - rel - dd * 0.05 });
+  }
+  cand.sort((a, b) => b.score - a.score);
+  for (const c of cand) {
+    if (!uP.has(c.p) || !uE.has(c.e)) continue;
+    uP.delete(c.p); uE.delete(c.e);
+    res.push({ status: 'value', p: [c.p], e: [c.e], dd: c.dd });
+  }
+
+  for (const p of uP) res.push({ status: 'only-p', p: [p], e: [] });
+  for (const e of uE) res.push({ status: 'only-e', p: [], e: [e] });
+  for (const p of outP) res.push({ status: 'out', p: [p], e: [] });
+
+  // Diferenças e observações
+  const range = fmtDate(ofx.start).slice(0, 5) + ' a ' + fmtDate(ofx.end);
+  for (const r of res) {
+    r.flags = []; r.notes = [];
+    const sp = r.p.reduce((s, x) => s + K(x.amount), 0), se = r.e.reduce((s, x) => s + K(x.amount), 0);
+    r.sumP = r.p.length ? sp : null; r.sumE = r.e.length ? se : null;
+    r.diff = r.p.length && r.e.length ? se - sp : null;
+    r.date = Math.min(...r.p.map((x) => x.date), ...r.e.map((x) => x.date));
+    if (r.status === 'ok-date') r.notes.push(`Data difere ${r.dd} dia${r.dd > 1 ? 's' : ''}.`);
+    if (r.status === 'group') r.notes.push(r.e.length === 1 ? `${r.p.length} linhas da planilha somam o lançamento do extrato.` : `${r.e.length} lançamentos do extrato somam a linha da planilha.`);
+    if (r.status === 'value') {
+      r.notes.push(`Valor no extrato ${Math.abs(r.sumE) > Math.abs(r.sumP) ? 'maior' : 'menor'} que na planilha em ${money(Math.abs(r.diff))}.`);
+      if (r.diff % 9 === 0) r.notes.push('Diferença múltipla de 9: pode ser inversão de dígitos.');
+      if (r.dd) r.notes.push(`Data difere ${r.dd} dia${r.dd > 1 ? 's' : ''}.`);
+    }
+    if (r.status === 'only-p') {
+      r.notes.push('Não encontrado no extrato.');
+      const twin = [...uE].find((e) => K(e.amount) === K(r.p[0].amount));
+      if (twin) r.notes.push(`Há lançamento de mesmo valor no extrato em ${fmtDate(twin.date)}, fora da tolerância.`);
+    }
+    if (r.status === 'only-e') {
+      r.notes.push('Não lançado na planilha.');
+      const twin = [...uP].find((p) => K(p.amount) === K(r.e[0].amount));
+      if (twin) r.notes.push(`Há linha de mesmo valor na planilha em ${fmtDate(twin.date)}, fora da tolerância.`);
+    }
+    if (r.status === 'out') r.notes.push(`Data fora do período do extrato (${range}).`);
+  }
+
+  // Duplicidades na planilha
+  const byKey = new Map();
+  for (const p of P) {
+    const k = p.date + '|' + p.amount + '|' + (payeeKey(p.desc) || norm(p.desc));
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(p);
+  }
+  const resOf = new Map();
+  for (const r of res) { r.p.forEach((p) => resOf.set(p, r)); r.e.forEach((e) => resOf.set(e, r)); }
+  for (const list of byKey.values()) {
+    if (list.length < 2) continue;
+    if (!list.some((p) => resOf.get(p).status === 'only-p')) continue;
+    for (const p of list) {
+      const r = resOf.get(p);
+      if (!r.flags.some((f) => f.type === 'dup')) {
+        r.flags.push({ type: 'dup', label: 'Possível duplicidade' });
+        r.notes.push(`Repetido na planilha: linhas ${list.map((x) => x.line).join(', ')}.`);
+      }
+    }
+  }
+  // FITID repetido no OFX
+  const fit = new Map();
+  for (const e of E) if (e.fitid) { const k = e.fitid; fit.set(k, (fit.get(k) || []).concat(e)); }
+  for (const list of fit.values()) if (list.length > 1) for (const e of list) {
+    const r = resOf.get(e);
+    if (!r.flags.some((f) => f.type === 'dup')) { r.flags.push({ type: 'dup', label: 'Possível duplicidade' }); r.notes.push('Identificador (FITID) repetido no OFX.'); }
+  }
+
+  // Categorias
+  if (o.hasCat) {
+    const keyFor = (r, p) => (r.e.length === 1 ? payeeKey(r.e[0].desc) : '') || payeeKey(p.desc);
+    const hist = new Map();
+    for (const r of res) for (const p of r.p) {
+      const k = keyFor(r, p), c = norm(p.cat);
+      if (!k || !c) continue;
+      if (!hist.has(k)) hist.set(k, new Map());
+      const m = hist.get(k); m.set(c, (m.get(c) || { n: 0, label: p.cat })); m.get(c).n++;
+    }
+    for (const r of res) for (const p of r.p) {
+      if (!p.cat) { r.flags.push({ type: 'cat', label: 'Sem categoria' }); r.notes.push(`Linha ${p.line} sem categoria.`); continue; }
+      const text = ' ' + norm(p.desc + ' ' + r.e.map((e) => e.desc).join(' ')) + ' ';
+      const rule = o.rules.find((ru) => text.includes(' ' + ru.kw + ' '));
+      if (rule) {
+        if (norm(p.cat) !== norm(rule.cat)) { r.flags.push({ type: 'cat', label: 'Categoria divergente' }); r.notes.push(`Regra “${rule.raw}”: esperado ${rule.cat}, está ${p.cat}.`); }
+        continue;
+      }
+      const m = hist.get(keyFor(r, p));
+      if (!m) continue;
+      let top = null, total = 0;
+      for (const v of m.values()) { total += v.n; if (!top || v.n > top.n) top = v; }
+      if (top && norm(top.label) !== norm(p.cat) && top.n >= 2 && top.n / total >= 0.6) {
+        r.flags.push({ type: 'cat', label: 'Categoria incomum' });
+        r.notes.push(`Outros ${top.n} lançamentos deste favorecido estão em ${top.label}.`);
+      }
+    }
+  }
+  res.sort((a, b) => a.date - b.date);
+  return { res, inP, outP };
+}
+
+/* ---------- Exemplo (dados fictícios) ---------- */
+const SAMPLE_OFX = `OFXHEADER:100
+DATA:OFXSGML
+VERSION:102
+SECURITY:NONE
+ENCODING:USASCII
+CHARSET:1252
+COMPRESSION:NONE
+OLDFILEUID:NONE
+NEWFILEUID:NONE
+
+<OFX>
+<SIGNONMSGSRSV1><SONRS><STATUS><CODE>0<SEVERITY>INFO</STATUS><DTSERVER>20261101120000[-3:BRT]<LANGUAGE>POR<FI><ORG>Banco Exemplo<FID>999</FI></SONRS></SIGNONMSGSRSV1>
+<BANKMSGSRSV1><STMTTRNRS><TRNUID>1<STATUS><CODE>0<SEVERITY>INFO</STATUS>
+<STMTRS><CURDEF>BRL<BANKACCTFROM><BANKID>999<BRANCHID>0001<ACCTID>12345-6<ACCTTYPE>CHECKING</BANKACCTFROM>
+<BANKTRANLIST><DTSTART>20261001000000[-3:BRT]<DTEND>20261031000000[-3:BRT]
+<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261001120000[-3:BRT]<TRNAMT>4800.00<FITID>2026100101<MEMO>PIX RECEBIDO ALFA COMERCIO DE ALIMENTOS</STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261002120000[-3:BRT]<TRNAMT>-3200.00<FITID>2026100201<MEMO>PAG BOLETO IMOBILIARIA SOL NASCENTE</STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261005120000[-3:BRT]<TRNAMT>-412.37<FITID>2026100501<MEMO>DEB AUTOM CEMIG DISTRIBUICAO</STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261006120000[-3:BRT]<TRNAMT>-1205.00<FITID>2026100601<MEMO>PIX ENVIADO JOAO PEREIRA DESIGN</STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261008120000[-3:BRT]<TRNAMT>-89.90<FITID>2026100801<MEMO>TARIFA PACOTE DE SERVICOS</STMTTRN>
+<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261010120000[-3:BRT]<TRNAMT>2350.00<FITID>2026101001<MEMO>PIX RECEBIDO BETA SERVICOS LTDA</STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261013120000[-3:BRT]<TRNAMT>-1137.45<FITID>2026101301<MEMO>PAG TIT DAS SIMPLES NACIONAL</STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261015120000[-3:BRT]<TRNAMT>-156.80<FITID>2026101501<MEMO>COMPRA CARTAO KALUNGA</STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261017120000[-3:BRT]<TRNAMT>-98.14<FITID>2026101701<MEMO>DEB AUTOM SABESP</STMTTRN>
+<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261020120000[-3:BRT]<TRNAMT>4800.00<FITID>2026102001<MEMO>PIX RECEBIDO ALFA COMERCIO DE ALIMENTOS</STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261022120000[-3:BRT]<TRNAMT>-650.00<FITID>2026102201<MEMO>PIX ENVIADO CONTABILIDADE EXATA</STMTTRN>
+<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261024120000[-3:BRT]<TRNAMT>7920.00<FITID>2026102401<MEMO>TED RECEBIDA GAMA INDUSTRIA METALURGICA</STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261027120000[-3:BRT]<TRNAMT>-230.00<FITID>2026102701<MEMO>COMPRA CARTAO POSTO AVENIDA</STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261028120000[-3:BRT]<TRNAMT>-189.90<FITID>2026102801<MEMO>PAG BOLETO VIVO TELEFONICA</STMTTRN>
+</BANKTRANLIST>
+<LEDGERBAL><BALAMT>15432.10<DTASOF>20261031000000[-3:BRT]</LEDGERBAL>
+</STMTRS></STMTTRNRS></BANKMSGSRSV1>
+</OFX>`;
+const SAMPLE_SHEET = [
+  ['Data', 'Descrição', 'Categoria', 'Valor', 'Nº Doc'],
+  ['01/10/2026', 'Recebimento Alfa Comércio', 'Receita de serviços', 4800, 'NF 1021'],
+  ['02/10/2026', 'Aluguel escritório outubro', 'Aluguel', -3200, ''],
+  ['05/10/2026', 'Conta de luz CEMIG', 'Aluguel', -412.37, ''],
+  ['06/10/2026', 'Freelancer João Pereira (design)', 'Serviços de terceiros', -1250, ''],
+  ['10/10/2026', 'Beta Serviços', 'Receita de serviços', 1500, 'NF 1024'],
+  ['10/10/2026', 'Beta Serviços', 'Receita de serviços', 850, 'NF 1025'],
+  ['11/10/2026', 'DAS Simples Nacional set/26', 'Impostos', -1137.45, ''],
+  ['15/10/2026', 'Material de escritório Kalunga', 'Material de escritório', -156.8, ''],
+  ['17/10/2026', 'Água SABESP', 'Água', -98.14, ''],
+  ['20/10/2026', 'Recebimento Alfa Comércio', 'Receita de serviços', 4800, 'NF 1030'],
+  ['22/10/2026', 'Honorários Contabilidade Exata', 'Contabilidade', -650, ''],
+  ['22/10/2026', 'Honorários Contabilidade Exata', 'Contabilidade', -650, ''],
+  ['24/10/2026', 'Gama Indústria', 'Receita de serviços', 7920, 'NF 1033'],
+  ['27/10/2026', 'Combustível', 'Combustível', -230, ''],
+  ['28/10/2026', 'Telefone e internet Vivo', '', -189.9, ''],
+  ['29/10/2026', 'Assinatura software de gestão', 'Software', -129, ''],
+  ['05/11/2026', 'Aluguel escritório novembro', 'Aluguel', -3200, ''],
+];
+const DEFAULT_RULES = `CEMIG = Energia
+SABESP = Água
+TARIFA = Tarifas bancárias
+SIMPLES NACIONAL = Impostos
+DAS = Impostos`;
+
+/* ---------- Estado ---------- */
+const S = {
+  sheet: { name: 'planilha-exemplo.xlsx', sample: true, wb: null, sheetName: 'Lançamentos', sheetNames: ['Lançamentos'], aoa: SAMPLE_SHEET, header: 0, map: null },
+  ofxFile: { name: 'extrato-exemplo.ofx', sample: true, data: null },
+  error: null,
+  filter: 'pend', q: '',
+  out: null,
+};
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* sem armazenamento */ } },
+};
+$('#rules').value = store.get('conc.rules') ?? DEFAULT_RULES;
+$('#tol').value = store.get('conc.tol') ?? '3';
+
+function parseRules(txt) {
+  return txt.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#') && l.includes('=')).map((l) => {
+    const i = l.indexOf('=');
+    const raw = l.slice(0, i).trim(), cat = l.slice(i + 1).trim();
+    return { raw, kw: norm(raw), cat };
+  }).filter((r) => r.kw && r.cat).sort((a, b) => b.kw.length - a.kw.length);
+}
+
+/* ---------- Carregar arquivos ---------- */
+async function loadSheetFile(file) {
+  const buf = await file.arrayBuffer();
+  let wb;
+  if (/\.csv$/i.test(file.name)) {
+    const txt = decodeText(buf);
+    const first = txt.split(/\r?\n/)[0] || '';
+    const FS = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ';' : ',';
+    wb = XLSX.read(txt, { type: 'string', raw: true, FS });
+  } else {
+    wb = XLSX.read(buf, { type: 'array', cellDates: false });
+  }
+  S.sheet = { name: file.name, sample: false, wb, sheetNames: wb.SheetNames, sheetName: null, aoa: null, header: 0, map: null };
+  const pick = wb.SheetNames.find((n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1 }).length > 1) || wb.SheetNames[0];
+  selectSheet(pick);
+}
+function selectSheet(name) {
+  const ws = S.sheet.wb.Sheets[name];
+  S.sheet.sheetName = name;
+  S.sheet.aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+  S.sheet.header = detectHeader(S.sheet.aoa);
+  S.sheet.map = null;
+}
+async function loadOfxFile(file) {
+  const buf = await file.arrayBuffer();
+  const text = decodeText(buf);
+  const parsed = parseOfx(text);
+  if (!parsed.tx.length) throw new Error('O extrato não tem lançamentos com data e valor válidos.');
+  S.ofxFile = { name: file.name, sample: false, data: parsed };
+}
+
+function wireDrop(dropId, inputId, loader) {
+  const drop = $(dropId), input = $(inputId);
+  const handle = async (file) => {
+    if (!file) return;
+    try { S.error = null; await loader(file); toast('Arquivo carregado: ' + file.name); }
+    catch (err) { S.error = (err && err.message) || 'Não consegui ler o arquivo.'; }
+    run();
+  };
+  input.addEventListener('change', () => { handle(input.files[0]); input.value = ''; });
+  ['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', (e) => handle(e.dataTransfer.files[0]));
+}
+wireDrop('#dropP', '#fileP', loadSheetFile);
+wireDrop('#dropE', '#fileE', loadOfxFile);
+
+/* ---------- Mapeamento de colunas ---------- */
+function renderMap() {
+  const sh = S.sheet;
+  const headers = (sh.aoa[sh.header] || []).map((h) => String(h ?? '').trim());
+  const width = Math.max(headers.length, ...sh.aoa.slice(sh.header, sh.header + 30).map((r) => r.length));
+  if (!sh.map) sh.map = guessMap(headers);
+  const opts = (sel) => ['<option value="-1">— não usar —</option>'].concat(
+    Array.from({ length: width }, (_, i) => `<option value="${i}"${i === sel ? ' selected' : ''}>${colName(i)}${headers[i] ? ' · ' + esc(headers[i]) : ''}</option>`)
+  ).join('');
+  let html = '';
+  if (sh.sheetNames.length > 1) {
+    html += `<div class="field"><label for="m-sheet">Aba</label><select id="m-sheet">${sh.sheetNames.map((n) => `<option${n === sh.sheetName ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></div>`;
+  }
+  html += `<div class="field"><label for="m-header">Linha do cabeçalho</label><input type="number" id="m-header" min="1" max="${sh.aoa.length}" value="${sh.header + 1}"></div>`;
+  for (const f of FIELDS) html += `<div class="field"><label for="m-${f.k}">${f.label}</label><select id="m-${f.k}" data-k="${f.k}">${opts(sh.map[f.k])}</select></div>`;
+  $('#mapFields').innerHTML = html;
+  $('#mapFields').querySelectorAll('select[data-k]').forEach((el) => el.addEventListener('change', () => { sh.map[el.dataset.k] = +el.value; run(); }));
+  const hs = $('#m-header');
+  hs.addEventListener('change', () => { const v = Math.max(1, Math.min(sh.aoa.length, +hs.value || 1)); sh.header = v - 1; sh.map = null; run(); });
+  const ss = $('#m-sheet');
+  if (ss) ss.addEventListener('change', () => { selectSheet(ss.value); run(); });
+}
+
+/* ---------- Execução e render ---------- */
+const ST = {
+  ok: { label: 'Conciliado', tone: 'ok' },
+  'ok-date': { label: 'Conciliado · data', tone: 'ok' },
+  group: { label: 'Conciliado · soma', tone: 'ok' },
+  value: { label: 'Valor divergente', tone: 'crit' },
+  'only-p': { label: 'Só na planilha', tone: 'warn' },
+  'only-e': { label: 'Só no extrato', tone: 'warn' },
+  out: { label: 'Fora do período', tone: 'quiet' },
+};
+const isOk = (r) => r.status === 'ok' || r.status === 'ok-date' || r.status === 'group';
+const hasFlag = (r, t) => r.flags.some((f) => f.type === t);
+const FILTERS = [
+  ['pend', 'Pendências', (r) => (!isOk(r) && r.status !== 'out') || r.flags.length > 0],
+  ['all', 'Todos', () => true],
+  ['ok', 'Conciliados', isOk],
+  ['value', 'Valor divergente', (r) => r.status === 'value'],
+  ['only-p', 'Só na planilha', (r) => r.status === 'only-p'],
+  ['only-e', 'Só no extrato', (r) => r.status === 'only-e'],
+  ['cat', 'Categoria', (r) => hasFlag(r, 'cat')],
+  ['dup', 'Duplicidade', (r) => hasFlag(r, 'dup')],
+  ['out', 'Fora do período', (r) => r.status === 'out'],
+];
+
+function run() {
+  const notices = [];
+  if (S.error) notices.push(['err', esc(S.error)]);
+  const sh = S.sheet;
+  renderMap();
+  const ofx = S.ofxFile.data || (S.ofxFile.data = parseOfx(SAMPLE_OFX));
+  const { rows: P, skipped } = buildSheetRecords(sh.aoa, sh.header, sh.map);
+
+  $('#tagP').className = 'tag ' + (sh.sample ? 'sample' : 'real'); $('#tagP').textContent = sh.sample ? 'Exemplo' : 'Seu arquivo';
+  $('#tagE').className = 'tag ' + (S.ofxFile.sample ? 'sample' : 'real'); $('#tagE').textContent = S.ofxFile.sample ? 'Exemplo' : 'Seu arquivo';
+  $('#infoP').innerHTML = `<b>${esc(sh.name)}</b>${sh.sheetNames.length > 1 ? ' · aba ' + esc(sh.sheetName) : ''} · ${P.length} lançamentos lidos${skipped ? ` · ${skipped} linha${skipped > 1 ? 's' : ''} ignorada${skipped > 1 ? 's' : ''} (sem data ou valor)` : ''}`;
+  const acct = [ofx.bank, ofx.branch && 'ag. ' + ofx.branch, ofx.acct && 'conta ' + ofx.acct].filter(Boolean).join(' · ');
+  $('#infoE').innerHTML = `<b>${esc(S.ofxFile.name)}</b> · ${esc(acct)}<br>${fmtDate(ofx.start)} a ${fmtDate(ofx.end)} · ${ofx.tx.length} lançamentos`;
+
+  if (sh.sample && S.ofxFile.sample) notices.push(['info', 'Você está vendo <b>dados de exemplo</b> (fictícios), com erros de propósito para mostrar cada tipo de alerta. Envie sua planilha e seu extrato OFX acima para conferir os seus.']);
+  else if (sh.sample) notices.push(['', 'A planilha ainda é a de <b>exemplo</b>. Envie a sua para comparar com o seu extrato.']);
+  else if (S.ofxFile.sample) notices.push(['', 'O extrato ainda é o de <b>exemplo</b>. Envie o OFX do seu banco para comparar com a sua planilha.']);
+
+  if (sh.map.data < 0 || (sh.map.valor < 0 && sh.map.entrada < 0 && sh.map.saida < 0)) {
+    notices.push(['err', 'Não identifiquei as colunas de <b>data</b> e <b>valor</b> na planilha. Abra “Colunas da planilha” e indique quais são.']);
+    $('#mapBox').open = true;
+  } else if (!P.length) {
+    notices.push(['err', 'Nenhuma linha da planilha tem data e valor válidos. Confira a linha do cabeçalho e as colunas em “Colunas da planilha”.']);
+    $('#mapBox').open = true;
+  }
+
+  const mode = $('#signMode').value;
+  const sheetHasNeg = P.some((p) => p.amount < 0), ofxHasNeg = ofx.tx.some((t) => t.amount < 0);
+  const abs = mode === 'abs' || (mode === 'auto' && !sheetHasNeg && ofxHasNeg);
+  if (mode === 'auto' && abs && P.length) notices.push(['info', 'A planilha não tem valores negativos, então a comparação ignora o sinal (entrada e saída de mesmo valor podem casar). Para separar, indique uma coluna <b>Tipo</b> ou as colunas <b>Entrada</b> e <b>Saída</b>.']);
+
+  const tol = Math.max(0, Math.min(15, parseInt($('#tol').value, 10) || 0));
+  S.out = reconcile(P, ofx, { tol, abs, rules: parseRules($('#rules').value), hasCat: sh.map.categoria >= 0 });
+  S.out.ofx = ofx; S.out.abs = abs; S.out.P = P;
+  $('#notices').innerHTML = notices.map(([cls, html]) => `<div class="notice ${cls}">${html}</div>`).join('');
+  renderSummary();
+  renderTable();
+}
+
+function renderSummary() {
+  const { res, ofx, abs, inP, outP } = S.out;
+  const K = (a) => (abs ? Math.abs(a) : a);
+  const matchedE = res.filter(isOk).reduce((n, r) => n + r.e.length, 0);
+  const pend = res.filter(FILTERS[0][2]).length;
+  const sumE = ofx.tx.reduce((s, t) => s + K(t.amount), 0);
+  const sumP = inP.reduce((s, p) => s + K(p.amount), 0);
+  const diff = sumE - sumP;
+  const pct = ofx.tx.length ? Math.round((matchedE / ofx.tx.length) * 100) : 0;
+  const entradas = ofx.tx.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+  const saidas = ofx.tx.filter((t) => t.amount < 0).reduce((s, t) => s + t.amount, 0);
+  $('#summary').innerHTML = `
+    <div class="metric"><span class="k">Conciliado</span><span class="v ${pct === 100 ? 'ok' : ''}">${pct}%</span>
+      <span class="s">${matchedE} de ${ofx.tx.length} lançamentos do extrato</span><div class="bar"><i style="width:${pct}%"></i></div></div>
+    <div class="metric"><span class="k">Pendências</span><span class="v ${pend ? 'warn' : 'ok'}">${pend}</span>
+      <span class="s">${res.filter((r) => r.status === 'value').length} divergência(s) de valor · ${res.filter((r) => hasFlag(r, 'cat')).length} de categoria</span></div>
+    <div class="metric"><span class="k">Diferença ${abs ? 'movimentada' : 'líquida'}</span><span class="v ${diff ? 'crit' : 'ok'}">${money(diff)}</span>
+      <span class="s">Extrato ${money(sumE)} · planilha ${money(sumP)}</span></div>
+    <div class="metric"><span class="k">Saldo final no extrato</span><span class="v">${ofx.ledger != null ? money(ofx.ledger) : '—'}</span>
+      <span class="s">Entradas ${money(entradas)} · saídas ${money(saidas)}</span></div>`;
+  $('#sources').innerHTML = `<div>Período do extrato: <b>${fmtDate(ofx.start)} a ${fmtDate(ofx.end)}</b>. A planilha entra com ${inP.length} linhas desse período${outP.length ? `; ${outP.length} fora dele ficaram de fora dos totais` : ''}.</div>`;
+}
+
+function visibleRows() {
+  const f = FILTERS.find((x) => x[0] === S.filter) || FILTERS[0];
+  const q = norm(S.q);
+  return S.out.res.filter(f[2]).filter((r) => {
+    if (!q) return true;
+    const hay = norm([...r.p.map((p) => `${p.desc} ${p.cat} ${p.doc} ${money(p.amount)} ${fmtDate(p.date)}`), ...r.e.map((e) => `${e.desc} ${money(e.amount)} ${fmtDate(e.date)}`), ST[r.status].label, r.notes.join(' ')].join(' '));
+    return hay.includes(q);
+  });
+}
+
+function renderTable() {
+  const res = S.out.res;
+  $('#chips').innerHTML = FILTERS.map(([k, label, fn]) => {
+    const n = res.filter(fn).length;
+    return `<button type="button" class="chip" data-f="${k}" aria-pressed="${S.filter === k}"${n === 0 && k !== 'all' && k !== 'pend' && S.filter !== k ? ' disabled' : ''}>${label}<span class="n">${n}</span></button>`;
+  }).join('');
+  const rows = visibleRows();
+  const cls = (c) => (c < 0 ? 'num neg' : 'num');
+  const itemP = (p) => `<div class="item"><div class="d">${fmtDate(p.date)} · linha ${p.line}</div><div class="t">${esc(p.desc) || '<span class="dash">sem descrição</span>'}</div>${p.cat ? `<div class="c">${esc(p.cat)}</div>` : ''}</div>`;
+  const itemE = (e) => `<div class="item"><div class="d">${fmtDate(e.date)}${e.doc ? ' · doc ' + esc(e.doc) : ''}</div><div class="t">${esc(e.desc)}</div></div>`;
+  const vals = (list) => list.length ? list.map((x) => `<div class="item"><span class="${x.amount < 0 ? 'neg' : ''}">${money(x.amount)}</span></div>`).join('') : '<span class="dash">—</span>';
+  $('#tbody').innerHTML = rows.length ? rows.map((r) => {
+    const st = ST[r.status];
+    return `<tr class="t-${st.tone}">
+      <td class="st"><span class="pill ${st.tone}">${st.label}</span>${r.flags.map((f) => `<br><span class="flag">${f.label}</span>`).join('')}</td>
+      <td>${r.p.length ? r.p.map(itemP).join('') : '<span class="dash">—</span>'}</td>
+      <td class="num">${vals(r.p)}</td>
+      <td>${r.e.length ? r.e.map(itemE).join('') : '<span class="dash">—</span>'}</td>
+      <td class="num">${vals(r.e)}</td>
+      <td class="${r.diff ? cls(r.diff) : 'num dash'}">${r.diff ? money(r.diff) : (r.diff === 0 ? 'R$ 0,00' : '—')}</td>
+      <td class="obs">${r.notes.map((n) => `<div>${esc(n)}</div>`).join('')}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="7" class="empty">${S.filter === 'pend' && !S.q ? 'Nenhuma pendência. Tudo conferido.' : 'Nada encontrado com esse filtro.'}</td></tr>`;
+}
+
+$('#chips').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (!b || b.disabled) return; S.filter = b.dataset.f; renderTable(); });
+$('#q').addEventListener('input', () => { S.q = $('#q').value; renderTable(); });
+$('#tol').addEventListener('change', () => { store.set('conc.tol', $('#tol').value); run(); });
+$('#signMode').addEventListener('change', run);
+let rulesTimer;
+$('#rules').addEventListener('input', () => { clearTimeout(rulesTimer); rulesTimer = setTimeout(() => { store.set('conc.rules', $('#rules').value); run(); }, 400); });
+
+/* ---------- Exportar ---------- */
+function flatRows(list) {
+  return list.map((r) => ({
+    'Situação': ST[r.status].label,
+    'Alertas': r.flags.map((f) => f.label).join('; '),
+    'Linha planilha': r.p.map((p) => p.line).join(', '),
+    'Data planilha': r.p.map((p) => fmtDate(p.date)).join(', '),
+    'Descrição planilha': r.p.map((p) => p.desc).join(' | '),
+    'Categoria': r.p.map((p) => p.cat).join(' | '),
+    'Valor planilha': r.sumP == null ? '' : r.sumP / 100,
+    'Data extrato': r.e.map((e) => fmtDate(e.date)).join(', '),
+    'Descrição extrato': r.e.map((e) => e.desc).join(' | '),
+    'Valor extrato': r.sumE == null ? '' : r.sumE / 100,
+    'Diferença': r.diff == null ? '' : r.diff / 100,
+    'Observações': r.notes.join(' '),
+  }));
+}
+function buildWorkbook() {
+  const { res, ofx, inP } = S.out;
+  const wb = XLSX.utils.book_new();
+  const resumo = [
+    ['Conciliação bancária'],
+    ['Extrato', S.ofxFile.name], ['Planilha', S.sheet.name + (S.sheet.sheetNames.length > 1 ? ' (aba ' + S.sheet.sheetName + ')' : '')],
+    ['Período', fmtDate(ofx.start) + ' a ' + fmtDate(ofx.end)],
+    ['Lançamentos no extrato', ofx.tx.length], ['Linhas da planilha no período', inP.length],
+    ['Saldo final no extrato', ofx.ledger != null ? ofx.ledger / 100 : ''],
+    [],
+    ['Situação', 'Quantidade'],
+    ...Object.keys(ST).map((k) => [ST[k].label, res.filter((r) => r.status === k).length]),
+    ['Alerta de categoria', res.filter((r) => hasFlag(r, 'cat')).length],
+    ['Possível duplicidade', res.filter((r) => hasFlag(r, 'dup')).length],
+  ];
+  const ws1 = XLSX.utils.aoa_to_sheet(resumo); ws1['!cols'] = [{ wch: 32 }, { wch: 40 }];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Resumo');
+  const addSheet = (name, list) => {
+    const data = flatRows(list);
+    const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ 'Situação': 'Nenhum lançamento' }]);
+    ws['!cols'] = [18, 20, 12, 14, 36, 22, 14, 14, 36, 14, 12, 50].map((wch) => ({ wch }));
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for (let R = 1; R <= range.e.r; R++) for (const C of [6, 9, 10]) { const c = ws[XLSX.utils.encode_cell({ r: R, c: C })]; if (c && c.t === 'n') c.z = '#,##0.00;-#,##0.00'; }
+    XLSX.utils.book_append_sheet(wb, ws, name);
+  };
+  addSheet('Pendências', res.filter(FILTERS[0][2]));
+  addSheet('Conciliados', res.filter(isOk));
+  addSheet('Todos', res);
+  return wb;
+}
+let downloads = null;
+if (window.claude && typeof window.claude.use === 'function') {
+  window.claude.use('downloads').then((d) => { downloads = d; if (!d) $('#btnXlsx').hidden = true; }).catch(() => { $('#btnXlsx').hidden = true; });
+}
+$('#btnXlsx').addEventListener('click', async () => {
+  if (!S.out) return;
+  const wb = buildWorkbook();
+  const ofx = S.out.ofx;
+  const name = `conciliacao-${fmtDate(ofx.start).split('/').reverse().join('-')}-a-${fmtDate(ofx.end).split('/').reverse().join('-')}.xlsx`;
+  if (downloads) {
+    try { await downloads.save({ filename: name, data: new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })]) }); toast('Planilha salva'); }
+    catch (err) { toast(err && err.code === 'declined' ? 'Download cancelado' : 'Não deu para salvar aqui. Use “Copiar lista” e cole no Excel.'); }
+  } else if (!window.claude) {
+    XLSX.writeFile(wb, name);
+  }
+});
+$('#btnCopy').addEventListener('click', () => {
+  if (!S.out) return;
+  const data = flatRows(visibleRows());
+  const cols = Object.keys(flatRows([S.out.res[0] || { status: 'ok', p: [], e: [], flags: [], notes: [] }])[0] || {});
+  const fmt = (v) => (typeof v === 'number' ? v.toFixed(2).replace('.', ',') : String(v).replace(/[\t\n]/g, ' '));
+  const tsv = [cols.join('\t'), ...data.map((r) => cols.map((c) => fmt(r[c])).join('\t'))].join('\n');
+  const fallback = () => {
+    const ta = document.createElement('textarea'); ta.value = tsv; document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch { ok = false; }
+    ta.remove(); toast(ok ? `${data.length} linhas copiadas. Cole no Excel.` : 'Não consegui copiar automaticamente.');
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(tsv).then(() => toast(`${data.length} linhas copiadas. Cole no Excel.`), fallback);
+  else fallback();
+});
+
+let toastTimer;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2600); }
+
+if (typeof XLSX === 'undefined') {
+  $('#notices').innerHTML = '<div class="notice err">A biblioteca de leitura de Excel não carregou. Verifique a conexão e recarregue a página.</div>';
+} else {
+  run();
+}
+})();
+</script>
